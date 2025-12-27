@@ -29,6 +29,6 @@ connectDB();
 const server = http.createServer(app);
 initSocket(server);
 
-server.listen(5000, () => {
-    console.log("🚀 Server running on http://localhost:5000");
+server.listen(process.env.PORT || 4070, () => {
+    console.log("🚀 Server running on http://localhost:4070");
 });

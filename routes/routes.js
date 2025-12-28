@@ -32,6 +32,7 @@ router.get("/orders", protect, OrderController.getOrders);
 router.get("/orders/:id", protect, OrderController.getById);
 router.put("/status/:id", protect, OrderController.updateStatus);
 router.put("/waiting/:id", protect, OrderController.updateWaiting);
+router.get("/waiting-orders", protect, OrderController.getWaitingOrders);
 router.put(
     "/orders/:id",
     protect,

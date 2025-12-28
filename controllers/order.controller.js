@@ -410,6 +410,33 @@ class OrderController {
         }
     }
 
+    // Zapchast kutayotgan barcha buyurtmalarni olish
+    async getWaitingOrders(req, res) {
+        try {
+            const cacheKey = "orders:waiting";
+
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                return response.success(res, "Zapchast kutayotganlar (cache)", JSON.parse(cached));
+            }
+
+            const orders = await Order.find({ "waiting.isWaiting": true })
+                .select("customerName brand phoneModel waiting.isWaiting waiting.reason waiting.waitingSince status createdAt")
+                .populate("receivedBy", "FullName username PhoneNumber")
+                .populate("repairedBy", "FullName username PhoneNumber")
+                .sort({ "waiting.waitingSince": -1 });
+
+            await redis.set(cacheKey, JSON.stringify(orders), "EX", 600);
+
+            io.emit("orders:waiting", orders);
+
+            return response.success(res, "Zapchast kutayotgan buyurtmalar", orders);
+
+        } catch (err) {
+            console.log("getWaitingOrders error:", err);
+            return response.serverError(res, "Server xatosi");
+        }
+    }
 
 }
 

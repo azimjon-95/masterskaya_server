@@ -6,6 +6,7 @@ import { upload } from "../utils/multer.js";
 import FinanceController from "../controllers/FinanceController.js";
 import DeviceController from "../controllers/DeviceController.js";
 import PartController from "../controllers/partController.js";
+import DashboardController from "../controllers/DashboardController.js";
 const router = Router();
 
 // ================= AUTH =================
@@ -67,4 +68,8 @@ router.put("/port/:id", protect, PartController.updatePart);
 router.delete("/port/:id", protect, PartController.deletePart);
 router.post("/port/sell/:id", protect, PartController.sellPart);
 router.get("/port/sales", protect, PartController.getSales);
+
+// ================= Dashboard =================
+router.get("/dashboard", DashboardController.getDashboardData);
+
 export default router;

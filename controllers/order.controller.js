@@ -1,4 +1,5 @@
 import Order from "../models/Order.js";
+import Part from "../models/Part.js";
 import FinanceModel from "../models/FinanceModel.js";
 import Balance from "../models/Balance.js";
 import redis from "../config/redis.js";
@@ -437,6 +438,85 @@ class OrderController {
             return response.serverError(res, "Server xatosi");
         }
     }
+
+    // 🔥 UsedPart qo'shish method
+    // 🔥 UsedPart qo'shish / kamaytirish va Part.quantity ni update qilish
+    async addUsedPart(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            const { orderId, partId, quantity = 1, price = 0 } = req.body;
+
+            if (!orderId || !partId) {
+                await session.abortTransaction();
+                session.endSession();
+                return response.error(res, "orderId va partId majburiy");
+            }
+
+            const order = await Order.findById(orderId).session(session);
+            if (!order) {
+                await session.abortTransaction();
+                session.endSession();
+                return response.error(res, "Buyurtma topilmadi");
+            }
+
+            const part = await Part.findById(partId).session(session);
+            if (!part) {
+                await session.abortTransaction();
+                session.endSession();
+                return response.error(res, "Zapchast topilmadi");
+            }
+
+            const qty = Number(quantity); // miqdor musbat yoki manfiy bo'lishi mumkin
+
+            // Buyurtmada part allaqachon mavjudmi
+            const existingPart = order.usedParts.find(
+                (p) => p.part.toString() === partId.toString()
+            );
+
+            if (existingPart) {
+                existingPart.quantity += qty; // qo'shish yoki kamaytirish
+                existingPart.priceAtThatTime = Number(price);
+
+                // Agar quantity 0 dan kichik bo'lsa, partni buyurtmadan o'chirish
+                if (existingPart.quantity <= 0) {
+                    order.usedParts = order.usedParts.filter(
+                        (p) => p.part.toString() !== partId.toString()
+                    );
+                }
+            } else {
+                if (qty > 0) { // yangi part faqat musbat miqdor bilan qo'shiladi
+                    order.usedParts.push({
+                        part: partId,
+                        quantity: qty,
+                        priceAtThatTime: Number(price),
+                    });
+                } else {
+                    await session.abortTransaction();
+                    session.endSession();
+                    return response.error(res, "Miqdor 0 dan katta bo'lishi kerak yangi part uchun");
+                }
+            }
+
+            // 🔹 Part.quantity ni yangilash
+            part.quantity -= qty; // buyurtmaga qo'shilsa kamayadi, minus bo'lsa oshadi
+            if (part.quantity < 0) part.quantity = 0; // manfiy bo'lmasligi uchun
+            await part.save({ session });
+
+            await order.save({ session });
+            await session.commitTransaction();
+            session.endSession();
+
+            return response.success(res, order.usedParts, "Zapchast yangilandi!");
+        } catch (error) {
+            await session.abortTransaction();
+            session.endSession();
+            console.error(error);
+            return response.error(res, "Zapchast yangilashda xatolik");
+        }
+    }
+
 
 }
 

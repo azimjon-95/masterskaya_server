@@ -63,6 +63,29 @@ class DashboardController {
                 { $group: { _id: "$type", total: { $sum: "$amount" } } }
             ]);
 
+            // 💳 Qarzlar statistikasi (olingan / berilgan)
+            const debtStats = await Finance.aggregate([
+                {
+                    $match: {
+                        category: { $in: ["Qarz olish", "Qarz berish"] },
+                        "debt.amount": { $gt: 0 },
+                        date: { $gte: start, $lte: end }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$category",
+                        total: { $sum: "$debt.amount" }
+                    }
+                }
+            ]);
+
+            const takenDebt =
+                debtStats.find(d => d._id === "Qarz olish")?.total || 0;
+
+            const givenDebt =
+                debtStats.find(d => d._id === "Qarz berish")?.total || 0;
+
             const income = monthFinance.find(x => x._id === "income")?.total || 0;
             const expense = monthFinance.find(x => x._id === "expense")?.total || 0;
 
@@ -71,6 +94,7 @@ class DashboardController {
 
             // 📦 Ombordagi mahsulotlar statistikasi
             const parts = await Part.find({});
+
             const totalCount = parts.reduce((a, b) => a + b.quantity, 0);
 
             const extiyot = parts.filter(p => p.type === "Extiyot qismlar");
@@ -87,6 +111,10 @@ class DashboardController {
                 expense,
                 profit,
                 balance: balance.totalMoney,
+                debts: {
+                    taken: takenDebt,   // 🟡 Olingan qarz
+                    given: givenDebt    // 🔵 Berilgan qarz
+                },
                 store: {
                     count: totalCount,
                     extiyot: { count: extiyot.length, sum: totalExtiyotSum },

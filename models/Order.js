@@ -125,7 +125,26 @@ const orderSchema = new mongoose.Schema(
                 type: Date,
                 default: null
             },
-        }
+        },
+
+        // 🔥 Ishlatilgan zapchastlar
+        usedParts: [
+            {
+                part: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "Part",
+                },
+                quantity: {
+                    type: Number,
+                    min: 1,
+                },
+                priceAtThatTime: {
+                    type: Number,
+                    min: 0,
+                },
+            }
+        ],
+
     },
     {
         timestamps: true, // createdAt va updatedAt avto qo'shiladi

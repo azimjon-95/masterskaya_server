@@ -1,5 +1,7 @@
 import redis from "../config/redis.js";
+import { clearFinanceCache } from "../config/clearFinanceCache.js";
 import FinanceModel from "../models/FinanceModel.js";
+import mongoose from "mongoose";
 import Balance from "../models/Balance.js";
 import response from "../utils/response.js";
 import { io } from "../config/socket.js";
@@ -118,105 +120,91 @@ class FinanceController {
         }
     }
 
-    // Yangi tranzaksiya qo'shish
+    // Yangi tranzaksiya + qarz
+
     async create(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
-            const { type, subtype, description, category, amount, date, personName, userId } = req.body;
+            const { type, description, category, amount, date, userId, debt } = req.body;
 
             if (!type || !["income", "expense"].includes(type)) {
+                await session.abortTransaction();
                 return response.error(res, "Tranzaksiya turi noto'g'ri");
             }
-            if (!description?.trim() || !category?.trim() || !amount || amount <= 0) {
-                return response.error(res, "Barcha majburiy maydonlar to'ldirilishi kerak");
-            }
 
-            const parsedAmount = parseFloat(amount);
-            if (isNaN(parsedAmount)) {
-                return response.error(res, "Summa noto'g'ri formatda");
-            }
-
-            const newTrans = await FinanceModel.create({
+            const newTrans = await FinanceModel.create([{
                 type,
-                subtype: subtype || null,
                 description: description.trim(),
                 category: category.trim(),
-                amount: parsedAmount,
+                amount,
                 date: date || new Date(),
-                personName: personName?.trim() || null,
                 userId: userId || null,
-            });
+                debt: debt ? {
+                    debtType: debt.debtType,
+                    amount: debt.amount,
+                    fullName: debt.fullName,
+                    phone: debt.phone,
+                    dueDate: debt.dueDate || null,
+                    isReturned: false,
+                } : null,
+            }], { session });
+            await Balance.adjustBalance(amount, type, session);
 
-            // Balansni yangilash (income → + , expense → -)
-            try {
-                await Balance.adjustBalance(parsedAmount, type);
-            } catch (balanceError) {
-                // Agar balans yetmasa — tranzaksiyani o'chirib tashlaymiz
-                await FinanceModel.deleteOne({ _id: newTrans._id });
-                return response.error(res, balanceError.message || "Kassada yetarli mablag' yo'q");
-            }
 
+            await session.commitTransaction();
+            session.endSession();
 
-            // Yangi balansni cache'ga saqlash
-            const updatedBalance = await Balance.getCurrentBalance();
-            try {
-                await redis.del(
-                    CACHE_KEYS.ALL_TRANSACTIONS,
-                );
-            } catch (redisErr) {
-                console.warn("Redis balans saqlash xatosi:", redisErr);
-            }
+            await clearFinanceCache(); // ✅
+            io.emit("finance:updated", { action: "create" });
 
-            // Real-time yangilanishlar
-            io.emit("finance:updated", {
-                action: "create",
-                transaction: newTrans.toObject ? newTrans.toObject() : newTrans,
-            });
-            io.emit("balance:updated", { totalMoney: updatedBalance.totalMoney });
+            return response.created(res, "Tranzaksiya qo‘shildi", newTrans[0]);
 
-            return response.created(res, "Tranzaksiya qo'shildi va balans yangilandi", {
-                transaction: newTrans.toObject ? newTrans.toObject() : newTrans,
-                currentBalance: updatedBalance.totalMoney,
-            });
-        } catch (error) {
-            console.error("create xatosi:", error);
+        } catch (err) {
+            await session.abortTransaction();
+            session.endSession();
+            console.error(err);
             return response.serverError(res);
         }
     }
+
+
     // Tranzaksiyani o'chirish
     async delete(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
             const { id } = req.params;
 
-            const deleted = await FinanceModel.findByIdAndDelete(id);
-
+            const deleted = await FinanceModel.findById(id).session(session);
             if (!deleted) {
+                await session.abortTransaction();
                 return response.notFound(res, "Tranzaksiya topilmadi");
             }
 
+            await FinanceModel.deleteOne({ _id: id }, { session });
+
             const reverseType = deleted.type === "income" ? "expense" : "income";
+            await Balance.adjustBalance(deleted.amount, reverseType, session);
 
-            try {
-                await Balance.adjustBalance(deleted.amount, reverseType);
-            } catch (balanceError) {
-                console.error("Balans rollback xatosi:", balanceError);
-                // Agar balansni tuzatish muvaffaqiyatsiz bo'lsa, tranzaksiyani qaytarish mumkin (ixtiyoriy)
-            }
+            await session.commitTransaction();
+            session.endSession();
 
-            // Redis cache'ni tozalash
-            try {
-                await redis.del(CACHE_KEYS.ALL_TRANSACTIONS);
+            await clearFinanceCache(); // ✅
+            io.emit("finance:updated", { action: "delete", id });
 
-            } catch (cacheError) {
-                console.error("Redis cache tozalashda xato:", cacheError);
-                // Cache xatosi asosiy operatsiyani buzmasligi kerak, shuning uchun bu yerda faqat log qilamiz
-            }
+            return response.success(res, "Tranzaksiya o'chirildi");
 
-            return response.success(res, "Tranzaksiya o'chirildi va balans tuzatildi");
-        } catch (error) {
-            console.error("delete xatosi:", error);
+        } catch (err) {
+            await session.abortTransaction();
+            session.endSession();
+            console.error(err);
             return response.serverError(res);
         }
     }
+
 
     // Joriy balans (faqat Redis + fallback)
     async getBalance(req, res) {
@@ -249,19 +237,147 @@ class FinanceController {
         }
     }
 
-    // Yordamchi metod: barcha finance cache ni tozalash
-    async invalidateFinanceCache() {
+
+    // Qarzni to‘lash (telefon bo‘yicha)
+    async payDebtByPhone(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
-            const keys = await redis.keys("finance:transactions:*");
-            const balanceKey = CACHE_KEYS.CURRENT_BALANCE;
-            keys.push(balanceKey);
-            if (keys.length > 0) {
-                await redis.del(keys);
+            const { phone, amount, type } = req.body;
+
+            if (!phone || !amount || amount <= 0) {
+                await session.abortTransaction();
+                session.endSession();
+                return response.error(res, "Telefon va summa majburiy");
             }
+
+            const debtType = type === "income" ? "given" : "taken";
+
+            // Telefon bo‘yicha barcha ochiq qarzlar (oldingi birinchi yopiladi)
+            const debts = await FinanceModel.find({
+                "debt.phone": phone,
+                "debt.debtType": debtType,
+                "debt.isReturned": false,
+            })
+                .sort({ date: 1 }) // eng eski qarzdan boshlab
+                .session(session);
+
+            if (!debts.length) {
+                await session.abortTransaction();
+                session.endSession();
+                return response.notFound(res, "Faol qarz topilmadi");
+            }
+
+            let remainingAmount = amount;
+            let totalPaid = 0;
+            let closedCount = 0;
+
+            for (const doc of debts) {
+                if (remainingAmount <= 0) break;
+
+                const currentDebt = doc.debt.amount;
+
+                if (remainingAmount >= currentDebt) {
+                    // 🔒 To‘liq yopildi
+                    remainingAmount -= currentDebt;
+                    totalPaid += currentDebt;
+
+                    doc.debt.amount = 0;
+                    doc.debt.isReturned = true;
+                    closedCount++;
+                } else {
+                    // 🟡 Qisman yopildi
+                    doc.debt.amount = currentDebt - remainingAmount;
+                    totalPaid += remainingAmount;
+                    remainingAmount = 0;
+                }
+
+                // 🔥 MUHIM: createdAt ni ham yangilaymiz
+                doc.createdAt = new Date();
+
+                await doc.save({ session });
+            }
+
+
+            // Balance faqat real to‘langan summa bo‘yicha
+            await Balance.adjustBalance(totalPaid, type, session);
+
+            await session.commitTransaction();
+            session.endSession();
+
+            await clearFinanceCache();
+            io.emit("finance:updated", { phone });
+
+            return response.success(res, "Qarz muvaffaqiyatli yangilandi", {
+                phone,
+                type,
+                debtType,
+                totalPaid,
+                closedCount,
+                remainingAmount,
+            });
+
         } catch (err) {
-            console.warn("Redis cache tozalash xatosi:", err);
+            await session.abortTransaction();
+            session.endSession();
+            console.error(err);
+            return response.serverError(res);
         }
     }
+
+
+    // Bizga qarzdorlar (given)
+    async getAllDebts(req, res) {
+        try {
+            const debts = await FinanceModel.aggregate([
+                // 1️⃣ Faqat debt bor va qaytarilmaganlari
+                {
+                    $match: {
+                        debt: { $ne: null },
+                        "debt.debtType": { $in: ["given", "taken"] },
+                        "debt.isReturned": false,
+                    },
+                },
+
+                // 2️⃣ Group: phone + debtType bo‘yicha
+                {
+                    $group: {
+                        _id: {
+                            phone: "$debt.phone",
+                            debtType: "$debt.debtType",
+                        },
+                        fullName: { $first: "$debt.fullName" },
+                        phone: { $first: "$debt.phone" },
+                        debtType: { $first: "$debt.debtType" },
+                        amount: { $sum: "$debt.amount" }, // 🔥 amount qo‘shiladi
+                    },
+                },
+
+                // 3️⃣ Chiroyli output
+                {
+                    $project: {
+                        _id: 0,
+                        fullName: 1,
+                        phone: 1,
+                        debtType: 1,
+                        amount: 1,
+                    },
+                },
+
+                // 4️⃣ Ixtiyoriy: katta summalar oldinda
+                {
+                    $sort: { amount: -1 },
+                },
+            ]);
+
+            return response.success(res, "Barcha qarzlar", debts);
+        } catch (err) {
+            console.error(err);
+            return response.serverError(res);
+        }
+    }
+
 }
 
 export default new FinanceController();

@@ -44,14 +44,14 @@ router.put(
     OrderController.update
 );
 router.delete("/orders/:id", protect, OrderController.delete);
-
+router.post("/add-used-part", protect, OrderController.addUsedPart);
 // ================= FINANCE =================
 router.get("/finance", protect, FinanceController.getAll);           // tranzaksiyalar + balans
 router.post("/finance", protect, FinanceController.create);          // yangi tranzaksiya
 router.delete("/finance/:id", protect, FinanceController.delete);     // o'chirish
 router.get("/balance", protect, FinanceController.getBalance); // faqat balans (tez yuklash uchun)
-
-
+router.get("/finance/debtors", protect, FinanceController.getAllDebts);
+router.post("/debt/pay", protect, FinanceController.payDebtByPhone);
 // ================= Android endpoints =================
 router.get("/android/full-info", protect, DeviceController.fullInfoAndroid);
 router.get("/android/power", protect, DeviceController.powerAndroid);
@@ -60,6 +60,7 @@ router.get("/android/power", protect, DeviceController.powerAndroid);
 router.get("/ios/device", protect, DeviceController.deviceInfoIOS);
 router.get("/ios/battery", protect, DeviceController.batteryIOS);
 router.get("/ios/logs", protect, DeviceController.logsIOS);
+router.get("/device_info", protect, DeviceController.getFullDeviceInfo);
 
 // ================= PARTS =================
 router.post("/port", protect, PartController.addPart);
@@ -68,7 +69,7 @@ router.put("/port/:id", protect, PartController.updatePart);
 router.delete("/port/:id", protect, PartController.deletePart);
 router.post("/port/sell/:id", protect, PartController.sellPart);
 router.get("/port/sales", protect, PartController.getSales);
-
+router.get("/port/extiyot-parts", protect, PartController.getExtiyotParts);
 // ================= Dashboard =================
 router.get("/dashboard", DashboardController.getDashboardData);
 

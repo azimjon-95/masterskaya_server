@@ -52,6 +52,47 @@ const financeSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Part", // sizning user modelingiz bo'lsa
         },
+
+
+        debt: {
+            type: {
+                debtType: {
+                    type: String,
+                    enum: ["given", "taken"], // qarz berilgan yoki olingan
+                    default: null,
+                },
+                amount: {
+                    type: Number, // qancha berilgan/olingan
+                    min: 1,
+                    default: null,
+                },
+                fullName: {
+                    type: String,
+                    trim: true,
+                    minlength: 3,
+                    default: null,
+                },
+                phone: {
+                    type: String,
+                    trim: true,
+                    default: null,
+                },
+                dueDate: {
+                    type: Date, // qachon qaytaradi
+                    default: null,
+                },
+                isReturned: {
+                    type: Boolean,
+                    default: false,
+                },
+                returnedAt: {
+                    type: Date,
+                    default: null,
+                },
+            },
+            default: null, // butun debt maydoni ixtiyoriy
+        },
+
     },
     {
         timestamps: true, // createdAt va updatedAt avto qo'shiladi

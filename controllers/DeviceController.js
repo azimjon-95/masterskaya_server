@@ -1,6 +1,12 @@
 import response from "../utils/response.js";
 import { exec } from "child_process";
 import { io } from "../config/socket.js"; // Socket.io instance
+import path from "path";
+import { fileURLToPath } from "url";
+
+// __dirname ni olish (ESM modul uchun)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ===================== HELPERS =====================
 const runADB = (cmd) =>
@@ -158,6 +164,40 @@ class DeviceController {
         } catch (e) {
             io.emit("ios:error", { error: e.toString(), timestamp: new Date().toISOString() });
             return response.error(res, "iPhone logs olinmadi", e.toString());
+        }
+    }
+
+
+
+    async getFullDeviceInfo(req, res) {
+        try {
+            // Python skriptga to‘liq path
+            // const pythonScript = path.join(__dirname, "service.py");
+
+            const pythonPath = `C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe`;
+
+            // exec(`"${pythonPath}" "${pythonScript}"`, ...
+
+            exec(`"${pythonPath}" "${pythonScript}"`, (error, stdout, stderr) => {
+                if (error) {
+                    console.error(error);
+                    return res.status(500).json({ success: false, message: "Python script xatolik berdi" });
+                }
+                if (stderr) {
+                    console.error(stderr);
+                }
+
+                try {
+                    const data = JSON.parse(stdout); // Python JSON chiqishi
+                    return res.json(data);
+                } catch (err) {
+                    console.error(err);
+                    return res.status(500).json({ success: false, message: "Python natijasi JSON emas" });
+                }
+            });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ success: false, message: "Server xatolik berdi" });
         }
     }
 }

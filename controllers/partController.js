@@ -178,7 +178,21 @@ class PartController {
         }
     }
 
+    // "Extiyot qismlar" turidagi barcha zapchastlarni olish
+    async getExtiyotParts(req, res) {
+        try {
+            const extiyotParts = await Part.find({ type: "Extiyot qismlar" });
 
+            if (extiyotParts.length === 0) {
+                return response.notFound(res, "Extiyot qismlar topilmadi");
+            }
+
+            return response.success(res, "data", extiyotParts);
+        } catch (error) {
+            console.error(error);
+            return response.error(res, "Server xatosi");
+        }
+    };
 }
 
 export default new PartController();

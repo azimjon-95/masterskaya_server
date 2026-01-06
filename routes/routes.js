@@ -1,12 +1,14 @@
 import { Router } from "express";
 import AuthController from "../controllers/auth.controller.js";
 import OrderController from "../controllers/order.controller.js";
-import { protect } from "../middlewares/auth.middleware.js";
 import { upload } from "../utils/multer.js";
 import FinanceController from "../controllers/FinanceController.js";
 import DeviceController from "../controllers/DeviceController.js";
 import PartController from "../controllers/partController.js";
 import DashboardController from "../controllers/DashboardController.js";
+import NoteController from "../controllers/note.controller.js";
+import protect from "../middlewares/protect.js";
+import adminOnly from "../middlewares/adminOnly.js";
 const router = Router();
 
 // ================= AUTH =================
@@ -15,8 +17,31 @@ const router = Router();
 router.post("/login", AuthController.login);
 router.get("/users", protect, AuthController.getAll);
 router.get("/users/:id", protect, AuthController.getById);
-router.post("/users", AuthController.create);
-router.delete("/users/:id", protect, AuthController.delete);
+router.get("/users/:id/full-details", protect, AuthController.getFullDetails);
+// CREATE user (admin)
+router.post(
+    "/users",
+    // adminOnly,
+    protect,
+    upload.single("image"),
+    AuthController.create
+);
+
+// DELETE user (admin)
+router.delete(
+    "/users/:id",
+    protect,
+    adminOnly,
+    AuthController.delete
+);
+// UPDATE user (admin)
+router.put(
+    "/users/:id",
+    protect,
+    adminOnly,
+    upload.single("image"),
+    AuthController.update
+);
 
 // ================= ORDERS =================
 
@@ -72,5 +97,16 @@ router.get("/port/sales", protect, PartController.getSales);
 router.get("/port/extiyot-parts", protect, PartController.getExtiyotParts);
 // ================= Dashboard =================
 router.get("/dashboard", DashboardController.getDashboardData);
+
+
+// ================= Note =================
+router.post("/note", protect, upload.single("image"), NoteController.create);
+router.get("/note", protect, NoteController.getMyNotes);
+router.get("/note/:id", protect, NoteController.getOne);
+router.put("/note/:id", protect, upload.single("image"), NoteController.update);
+router.delete("/note/:id", protect, NoteController.delete);
+router.delete("/note", protect, NoteController.deleteAllByMasterId);
+router.patch("/note/:id/pin", NoteController.togglePin);
+router.patch("/reorder", NoteController.reorderNotes);
 
 export default router;

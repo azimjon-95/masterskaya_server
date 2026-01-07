@@ -6,6 +6,7 @@ import Finance from "../models/FinanceModel.js";
 import redis from "../config/redis.js";
 import jwt from "jsonwebtoken";
 import response from "../utils/response.js";
+import mongoose from "mongoose";
 import { uploadToImgBB } from "../utils/imgbb.js";
 
 class AuthController {
@@ -191,9 +192,8 @@ class AuthController {
             const { id: masterId } = req.params;
 
             // 1️⃣ Shu master ma’lumotlari
-            const master = await Master.findById(masterId).select(
-                "fullName phoneNumber role image isActive"
-            );
+
+            const master = await Master.find().select("fullName phoneNumber role image isActive");
 
             if (!master) {
                 return response.notFound(res, "Master topilmadi");
